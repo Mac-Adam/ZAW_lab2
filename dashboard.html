@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>MOT Tracking Results Dashboard</title>
+  <style>
+    body { font-family: monospace; background: #1a1a1a; color: #ddd; margin: 0; padding: 20px; }
+    h1   { color: #fff; border-bottom: 1px solid #444; padding-bottom: 8px; }
+    h2   { color: #aaa; margin-top: 28px; }
+    select, button { background: #2a2a2a; color: #ddd; border: 1px solid #555; padding: 5px 10px; margin: 4px; cursor: pointer; }
+    select:focus, button:hover { border-color: #888; }
+
+    table { border-collapse: collapse; width: 100%; margin-top: 12px; font-size: 13px; }
+    th    { background: #2d2d2d; color: #bbb; padding: 6px 10px; text-align: left; border: 1px solid #444; }
+    td    { padding: 5px 10px; border: 1px solid #333; }
+    tr:hover td { background: #252525; }
+    .combined { background: #222e22; font-weight: bold; }
+    .best     { color: #7ec87e; }
+    .worst    { color: #c87e7e; }
+    .cfg-label { color: #7eb8e8; font-weight: bold; }
+    .no-data  { color: #888; font-style: italic; }
+    .controls { margin: 14px 0; }
+    .info     { color: #888; font-size: 12px; margin-top: 4px; }
+    .separator { border-top: 1px solid #444; margin: 20px 0; }
+  </style>
+</head>
+<body>
+  <h1>MOT Tracking Results Dashboard</h1>
+  <p class="info">
+    Data loaded from <code>results_data.js</code> — re-run <code>master_test.py</code> to update.
+    Best/worst values highlighted per column (green = best, red = worst).
+  </p>
+
+  <div id="app">
+    <p class="no-data">Loading results_data.js…</p>
+  </div>
+
+  <script src="results_data.js"></script>
+  <script>
+    // ── Metric display preferences ─────────────────────────────────────────
+    const METRICS    = ["HOTA(0)", "MOTA", "IDF1", "IDSW", "IDs", "GT_IDs"];
+    // Higher is better for these; lower is better for rest
+    const HIGHER_BETTER = new Set(["HOTA(0)", "MOTA", "IDF1"]);
+    const SEQS_ORDER    = ["seq1", "seq2", "seq3", "seq4", "COMBINED"];
+
+    function fmt(v) {
+      const n = parseFloat(v);
+      return isNaN(n) ? v : n.toFixed(3);
+    }
+
+    function buildTable(runEntries) {
+      // runEntries: [{label, metrics: {seq: {metric: value}}}]
+      // Returns an HTML table showing all configs for this set of runs
+
+      // For best/worst highlighting, gather all COMBINED values per metric
+      const combinedValues = {}; // metric -> [value, ...]
+      for (const m of METRICS) combinedValues[m] = [];
+      for (const entry of runEntries) {
+        const combined = entry.metrics["COMBINED"] || {};
+        for (const m of METRICS) {
+          const v = parseFloat(combined[m]);
+          if (!isNaN(v)) combinedValues[m].push(v);
+        }
+      }
+      const bestVal  = {}, worstVal = {};
+      for (const m of METRICS) {
+        if (combinedValues[m].length === 0) continue;
+        if (HIGHER_BETTER.has(m)) {
+          bestVal[m]  = Math.max(...combinedValues[m]);
+          worstVal[m] = Math.min(...combinedValues[m]);
+        } else {
+          bestVal[m]  = Math.min(...combinedValues[m]);
+          worstVal[m] = Math.max(...combinedValues[m]);
+        }
+      }
+
+      let html = `<table>
+        <thead>
+          <tr>
+            <th>Config</th>
+            <th>Sequence</th>
+            ${METRICS.map(m => `<th>${m}</th>`).join("")}
+          </tr>
+        </thead>
+        <tbody>`;
+
+      for (const entry of runEntries) {
+        const seqs = SEQS_ORDER.filter(s => s in entry.metrics);
+        for (let si = 0; si < seqs.length; si++) {
+          const seq  = seqs[si];
+          const data = entry.metrics[seq] || {};
+          const rowClass = seq === "COMBINED" ? ' class="combined"' : "";
+          html += `<tr${rowClass}>`;
+          // Config label only on first row of this entry
+          if (si === 0) {
+            html += `<td class="cfg-label" rowspan="${seqs.length}">${entry.label}</td>`;
+          }
+          html += `<td>${seq}</td>`;
+          for (const m of METRICS) {
+            const raw = data[m];
+            const v   = parseFloat(raw);
+            let cls   = "";
+            if (seq === "COMBINED" && !isNaN(v)) {
+              if (Math.abs(v - (bestVal[m] ?? NaN))  < 1e-9) cls = ' class="best"';
+              else if (Math.abs(v - (worstVal[m] ?? NaN)) < 1e-9) cls = ' class="worst"';
+            }
+            html += `<td${cls}>${fmt(raw)}</td>`;
+          }
+          html += `</tr>`;
+        }
+      }
+      html += `</tbody></table>`;
+      return html;
+    }
+
+    function render() {
+      const app = document.getElementById("app");
+
+      if (typeof RESULTS_DATA === "undefined") {
+        app.innerHTML = `<p class="no-data">
+          <strong>results_data.js not found or empty.</strong><br>
+          Run <code>python master_test.py</code> first, then reload this page.
+        </p>`;
+        return;
+      }
+
+      // RESULTS_DATA shape: { "greedy_0.15": [{timestamp, algorithm, threshold, metrics}, ...], ... }
+      const configs = Object.keys(RESULTS_DATA);
+      if (configs.length === 0) {
+        app.innerHTML = `<p class="no-data">No results yet. Run <code>python master_test.py</code> first.</p>`;
+        return;
+      }
+
+      // Build a flat list of all runs with their label and latest entry
+      // Group by algorithm for display
+      const algGroups = {};
+      for (const cfg of configs) {
+        const runs = RESULTS_DATA[cfg];
+        if (!runs || runs.length === 0) continue;
+        const latest = runs[runs.length - 1];
+        const alg    = latest.algorithm || cfg.split("_")[0];
+        if (!algGroups[alg]) algGroups[alg] = [];
+        algGroups[alg].push({ label: cfg, ...latest });
+      }
+
+      let html = "";
+
+      // Run history selector
+      html += `<div class="controls">
+        <strong>View run history for a configuration:</strong>
+        <select id="histSelect">
+          <option value="">— select —</option>
+          ${configs.map(c => `<option value="${c}">${c}</option>`).join("")}
+        </select>
+        <span id="histInfo" class="info"></span>
+      </div>
+      <div id="histTable"></div>
+      <div class="separator"></div>`;
+
+      // Latest results grouped by algorithm
+      for (const [alg, entries] of Object.entries(algGroups)) {
+        // Sort by threshold
+        entries.sort((a, b) => a.threshold - b.threshold);
+        html += `<h2>Algorithm: <code>${alg}</code></h2>`;
+        html += buildTable(entries);
+      }
+
+      // All configs side by side (COMBINED only)
+      html += `<div class="separator"></div><h2>Summary — COMBINED row, all configurations</h2>`;
+      const allEntries = [];
+      for (const cfg of configs) {
+        const runs = RESULTS_DATA[cfg];
+        if (!runs || runs.length === 0) continue;
+        const latest = runs[runs.length - 1];
+        allEntries.push({ label: cfg, metrics: { COMBINED: latest.metrics["COMBINED"] || {} }});
+      }
+      html += buildTable(allEntries);
+
+      app.innerHTML = html;
+
+      // Wire up history selector
+      document.getElementById("histSelect").addEventListener("change", function () {
+        const cfg  = this.value;
+        const hist = document.getElementById("histTable");
+        const info = document.getElementById("histInfo");
+        if (!cfg || !RESULTS_DATA[cfg]) { hist.innerHTML = ""; info.textContent = ""; return; }
+        const runs = RESULTS_DATA[cfg];
+        info.textContent = `${runs.length} run(s)`;
+        const entries = runs.map((r, i) => ({
+          label: `#${i + 1} — ${r.timestamp}`,
+          metrics: r.metrics
+        }));
+        hist.innerHTML = buildTable(entries);
+      });
+    }
+
+    render();
+  </script>
+</body>
+</html>

@@ -2,7 +2,7 @@ import numpy as np
 import cv2
 import os
 from os.path import join
-
+from scipy.optimize import linear_sum_assignment
 def get_distinct_color(id_num):
     rng = np.random.default_rng(seed=id_num)
     h = rng.integers(0, 180) 
@@ -90,7 +90,7 @@ def calculate_iou(det1, det2):
 
     return inter_area / (union_area + 1e-6)
     
-def assign_ids_greedy(detections):
+def assign_ids_greedy(detections, iou_threshold=0.5):
     frames = list(detections.keys())
     frames.sort()
     max_id = 0
@@ -106,7 +106,7 @@ def assign_ids_greedy(detections):
             assigned = False
             
             for other_det in detections[frame-1]:
-                if calculate_iou(det,other_det) > 0.5:
+                if calculate_iou(det,other_det) >= iou_threshold:
                     if other_det['id'] in already_taken:
                         continue
                     already_taken.add(other_det['id'])
@@ -116,15 +116,67 @@ def assign_ids_greedy(detections):
             if not assigned:
                 max_id +=1
                 det['id'] = max_id
-    
                 
+def calculate_cost(det1, det2):
+    return -calculate_iou(det1, det2)
+
+def assign_ids_hungarian(detections, iou_threshold=0.25):
+    frames = list(detections.keys())
+    frames.sort()
+    max_id = 0
+    for frame_idx, frame in enumerate(frames):
+        if frame_idx == 0:
+            for det in detections[frame]:
+                max_id += 1
+                det['id'] = max_id
+            continue
+        
+        current_dets = detections[frame]
+        prev_dets = detections.get(frame - 1, [])
+        
+        if len(current_dets) == 0:
+            continue
+            
+        if len(prev_dets) == 0:
+            for det in current_dets:
+                max_id += 1
+                det['id'] = max_id
+            continue
+            
+        costs = np.zeros((len(current_dets), len(prev_dets)))
+        for det_idx, det in enumerate(current_dets):
+            for prev_det_idx, prev_det in enumerate(prev_dets):
+                costs[det_idx, prev_det_idx] = calculate_cost(det, prev_det)
+                
+        row_ind, col_ind = linear_sum_assignment(costs)
+        
+        assigned_current = set()
+        for r, c in zip(row_ind, col_ind):
+            iou = calculate_iou(current_dets[r], prev_dets[c])
+            if iou >= iou_threshold:
+                current_dets[r]['id'] = prev_dets[c]['id']
+                assigned_current.add(r)
+                
+        for r, det in enumerate(current_dets):
+            if r not in assigned_current:
+                max_id += 1
+                det['id'] = max_id
+        
+        
+    
+def save_results(dataset_path,detections):
+    with open(dataset_path+"/out/res.txt",'w') as file:
+        for frame, dets in detections.items():
+            for det in dets:
+                file.write(f"{frame},{det['id']},{det['bbl']},{det['bbt']},{det['bbw']},{det['bbh']},1,-1,-1,-1\n")
             
 
 if __name__ == "__main__":
     dataset_path = "./data/evs_mot-train/MOT_02"
     detections = parse_det(dataset_path) 
-    assign_ids_greedy(detections)
+    assign_ids_hungarian(detections)
     frames = list(detections.keys())
     frames.sort()
     print(frames[-1],len(frames))
+    save_results(dataset_path,detections)
     display_results(dataset_path, detections)
