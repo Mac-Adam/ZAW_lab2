@@ -27,6 +27,8 @@ IOU_THRESHOLD = 0.15
 MAX_AGE = 3
 MIN_HITS = 1
 OUTPUT_COASTED = False
+VELOCITY_DECAY = 0.98
+INFLATION_SCALE = 0.8
 
 def save_test_results(output_filepath, detections):
     with open(output_filepath, 'w') as file:
@@ -38,7 +40,7 @@ def save_test_results(output_filepath, detections):
 
 def main():
     print(f"[*] Starting tracking on test dataset...")
-    print(f"    Parameters: iou={IOU_THRESHOLD}, max_age={MAX_AGE}, min_hits={MIN_HITS}, output_coasted={OUTPUT_COASTED}")
+    print(f"    Parameters: iou={IOU_THRESHOLD}, max_age={MAX_AGE}, min_hits={MIN_HITS}, output_coasted={OUTPUT_COASTED}, velocity_decay={VELOCITY_DECAY}, inflation_scale={INFLATION_SCALE}")
     
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     file_list = []
@@ -58,7 +60,9 @@ def main():
             iou_threshold=IOU_THRESHOLD,
             max_age=MAX_AGE,
             min_hits=MIN_HITS,
-            output_coasted=OUTPUT_COASTED
+            output_coasted=OUTPUT_COASTED,
+            velocity_decay=VELOCITY_DECAY,
+            inflation_scale=INFLATION_SCALE
         )
         
         # Save results

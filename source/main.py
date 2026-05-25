@@ -162,7 +162,7 @@ def assign_ids_hungarian(detections, iou_threshold=0.25):
                 max_id += 1
                 det['id'] = max_id
 
-def assign_ids_kalman(detections, iou_threshold=0.15, max_age=3, min_hits=1, q_std=0.1, r_std=2.0, output_coasted=False, img_size=None, edge_margin=10):
+def assign_ids_kalman(detections, iou_threshold=0.15, max_age=3, min_hits=1, q_std=0.1, r_std=2.0, output_coasted=False, img_size=None, edge_margin=10, velocity_decay=1, inflation_scale=0.8):
     from kalman_tracker import KalmanTracker
     
     if img_size is None and len(detections) > 0:
@@ -183,7 +183,9 @@ def assign_ids_kalman(detections, iou_threshold=0.15, max_age=3, min_hits=1, q_s
         r_std=r_std,
         output_coasted=output_coasted,
         img_size=img_size,
-        edge_margin=edge_margin
+        edge_margin=edge_margin,
+        velocity_decay=velocity_decay,
+        inflation_scale=inflation_scale
     )
     
     frames = list(detections.keys())
@@ -206,12 +208,12 @@ def save_results(dataset_path,detections):
             
 
 if __name__ == "__main__":
-    dataset_path = "./data/evs_mot-test/MOT_01"
+    dataset_path = "./data/evs_mot-train/MOT_02"
     detections = parse_det(dataset_path) 
-    assign_ids_kalman(detections,output_coasted=True,max_age=10)
+    assign_ids_kalman(detections,output_coasted=True,max_age=50)
     # assign_ids_hungarian(detections)
     frames = list(detections.keys())
     frames.sort()
     print(frames[-1],len(frames))
     save_results(dataset_path,detections)
-    #display_results(dataset_path, detections)
+    display_results(dataset_path, detections)

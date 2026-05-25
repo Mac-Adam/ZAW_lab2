@@ -132,12 +132,12 @@ class Track:
         self.age = 1
         self.time_since_update = 0
         
-    def predict(self):
+    def predict(self, velocity_decay=0.98):
         """Advance the state prediction and update tracking age."""
         if self.time_since_update > 0:
             # Decay velocity during coasting to prevent flying off
-            self.kf.x[4, 0] *= 0.85
-            self.kf.x[5, 0] *= 0.85
+            self.kf.x[4, 0] *= velocity_decay
+            self.kf.x[5, 0] *= velocity_decay
             
         self.kf.predict()
         self.age += 1
@@ -162,11 +162,30 @@ class Track:
         bbt = yc - h / 2.0
         return [bbl, bbt, w, h]
 
+    def get_inflated_bbox(self, inflation_scale=0.0):
+        """Get current bounding box inflated by position uncertainty standard deviation."""
+        bbox = self.get_bbox()
+        if inflation_scale <= 0.0:
+            return bbox
+            
+        std_x = np.sqrt(self.kf.P[0, 0] + self.kf.R[0, 0])
+        std_y = np.sqrt(self.kf.P[1, 1] + self.kf.R[1, 1])
+        
+        w_inflated = bbox[2] + inflation_scale * std_x
+        h_inflated = bbox[3] + inflation_scale * std_y
+        
+        xc = bbox[0] + bbox[2] / 2.0
+        yc = bbox[1] + bbox[3] / 2.0
+        bbl_inflated = xc - w_inflated / 2.0
+        bbt_inflated = yc - h_inflated / 2.0
+        
+        return [bbl_inflated, bbt_inflated, w_inflated, h_inflated]
+
 class KalmanTracker:
     """
     Coordinates Kalman-based tracking of multiple objects.
     """
-    def __init__(self, max_age=3, min_hits=1, iou_threshold=0.25, q_std=1.0, r_std=1.0, output_coasted=False, img_size=None, edge_margin=20):
+    def __init__(self, max_age=3, min_hits=1, iou_threshold=0.25, q_std=1.0, r_std=1.0, output_coasted=False, img_size=None, edge_margin=20, velocity_decay=0.98, inflation_scale=0.0):
         self.max_age = max_age
         self.min_hits = min_hits
         self.iou_threshold = iou_threshold
@@ -175,6 +194,8 @@ class KalmanTracker:
         self.output_coasted = output_coasted
         self.img_size = img_size
         self.edge_margin = edge_margin
+        self.velocity_decay = velocity_decay
+        self.inflation_scale = inflation_scale
         self.tracks = []
         self.next_id = 1
         
@@ -186,7 +207,7 @@ class KalmanTracker:
         """
         # 1. Predict state for all existing tracks
         for track in self.tracks:
-            track.predict()
+            track.predict(velocity_decay=self.velocity_decay)
             
         # Extract bboxes of current detections
         det_bboxes = [[d["bbl"], d["bbt"], d["bbw"], d["bbh"]] for d in detections]
@@ -200,14 +221,14 @@ class KalmanTracker:
             # Cost matrix: tracks (rows) vs detections (columns)
             cost_matrix = np.zeros((len(self.tracks), len(detections)))
             for t_idx, track in enumerate(self.tracks):
-                track_bbox = track.get_bbox()
+                track_bbox = track.get_inflated_bbox(self.inflation_scale)
                 for d_idx, det_bbox in enumerate(det_bboxes):
                     cost_matrix[t_idx, d_idx] = -calculate_iou(track_bbox, det_bbox)
                     
             row_ind, col_ind = linear_sum_assignment(cost_matrix)
             
             for r, c in zip(row_ind, col_ind):
-                track_bbox = self.tracks[r].get_bbox()
+                track_bbox = self.tracks[r].get_inflated_bbox(self.inflation_scale)
                 iou = calculate_iou(track_bbox, det_bboxes[c])
                 if iou >= self.iou_threshold:
                     matched_tracks_and_dets.append((self.tracks[r], c))
