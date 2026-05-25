@@ -38,7 +38,7 @@ SEQUENCES = {
 }
 
 # Configurations to evaluate
-ALGORITHMS  = ["greedy", "hungarian"]
+ALGORITHMS  = ["greedy", "hungarian", "kalman"]
 THRESHOLDS  = [0.15, 0.30, 0.60]
 
 # Metrics to extract from pedestrian_detailed.csv (COMBINED row)
@@ -123,6 +123,8 @@ def run_tracker(algorithm, threshold):
             m.assign_ids_greedy(detections, iou_threshold=threshold)
         elif algorithm == "hungarian":
             m.assign_ids_hungarian(detections, iou_threshold=threshold)
+        elif algorithm == "kalman":
+            m.assign_ids_kalman(detections, iou_threshold=threshold)
         else:
             raise ValueError(f"Unknown algorithm: {algorithm}")
 

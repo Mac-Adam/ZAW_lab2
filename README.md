@@ -149,6 +149,19 @@ python validate.py         # copies result to TrackEval and prints metrics
 
 ---
 
+## Generating Codabench Submission
+
+To run the tracking pipeline on the test dataset sequences (`MOT_01`, `MOT_06`, `MOT_07`) using the optimized Kalman Filter tracker configuration and output them to the `/data` folder:
+
+```powershell
+uvenv uni_ai
+python run_test.py
+```
+
+This will create `MOT_01.txt`, `MOT_06.txt`, and `MOT_07.txt` inside the `projekt2/data/` directory.
+
+---
+
 ## Metric Glossary
 
 | Metric | Description |

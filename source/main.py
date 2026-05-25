@@ -161,22 +161,57 @@ def assign_ids_hungarian(detections, iou_threshold=0.25):
             if r not in assigned_current:
                 max_id += 1
                 det['id'] = max_id
-        
-        
+
+def assign_ids_kalman(detections, iou_threshold=0.15, max_age=3, min_hits=1, q_std=0.1, r_std=2.0, output_coasted=False, img_size=None, edge_margin=10):
+    from kalman_tracker import KalmanTracker
     
+    if img_size is None and len(detections) > 0:
+        # Estimate image size from detections
+        max_x = 0
+        max_y = 0
+        for frame, dets in detections.items():
+            for d in dets:
+                max_x = max(max_x, d["bbl"] + d["bbw"])
+                max_y = max(max_y, d["bbt"] + d["bbh"])
+        img_size = (max_x, max_y)
+        
+    tracker = KalmanTracker(
+        max_age=max_age,
+        min_hits=min_hits,
+        iou_threshold=iou_threshold,
+        q_std=q_std,
+        r_std=r_std,
+        output_coasted=output_coasted,
+        img_size=img_size,
+        edge_margin=edge_margin
+    )
+    
+    frames = list(detections.keys())
+    if not frames:
+        return
+    max_frame = max(frames)
+    
+    for frame in range(1, max_frame + 1):
+        current_dets = detections.get(frame, [])
+        tracked_dets = tracker.step(current_dets)
+        detections[frame] = tracked_dets
+
 def save_results(dataset_path,detections):
-    with open(dataset_path+"/out/res.txt",'w') as file:
+    out_dir = os.path.join(dataset_path, "out")
+    os.makedirs(out_dir, exist_ok=True)
+    with open(os.path.join(out_dir, "res.txt"), 'w') as file:
         for frame, dets in detections.items():
             for det in dets:
                 file.write(f"{frame},{det['id']},{det['bbl']},{det['bbt']},{det['bbw']},{det['bbh']},1,-1,-1,-1\n")
             
 
 if __name__ == "__main__":
-    dataset_path = "./data/evs_mot-train/MOT_02"
+    dataset_path = "./data/evs_mot-test/MOT_01"
     detections = parse_det(dataset_path) 
-    assign_ids_hungarian(detections)
+    assign_ids_kalman(detections,output_coasted=True,max_age=10)
+    # assign_ids_hungarian(detections)
     frames = list(detections.keys())
     frames.sort()
     print(frames[-1],len(frames))
     save_results(dataset_path,detections)
-    display_results(dataset_path, detections)
+    #display_results(dataset_path, detections)
